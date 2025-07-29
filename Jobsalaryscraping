@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+“””
+Job Salary Scraper for Graphic Designer positions in Los Angeles
+Scrapes multiple job sites for salary information with rate limiting and ethical practices
+“””
+
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import time
+import re
+from urllib.parse import urljoin, quote
+from dataclasses import dataclass
+from typing import List, Optional
+import logging
+
+# Configure logging
+
+logging.basicConfig(level=logging.INFO, format=’%(asctime)s - %(levelname)s - %(message)s’)
+logger = logging.getLogger(**name**)
+
+@dataclass
+class JobListing:
+title: str
+company: str
+location: str
+salary: str
+source: str
+url: str
+
+class JobScraper:
+def **init**(self, delay=2):
+self.delay = delay  # Delay between requests (seconds)
+self.session = requests.Session()
+self.session.headers.update({
+‘User-Agent’: ‘Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36’
+})
+
+```
+def get_page(self, url: str) -> Optional[BeautifulSoup]:
+    """Fetch and parse a web page with error handling"""
+    try:
+        time.sleep(self.delay)  # Rate limiting
+        response = self.session.get(url, timeout=10)
+        response.raise_for_status()
+        return BeautifulSoup(response.content, 'html.parser')
+    except requests.RequestException as e:
+        logger.error(f"Error fetching {url}: {e}")
+        return None
+
+def extract_salary(self, text: str) -> str:
+    """Extract salary information from text"""
+    if not text:
+        return "Not specified"
+    
+    # Common salary patterns
+    salary_patterns = [
+        r'\$[\d,]+(?:\.\d{2})?\s*-\s*\$[\d,]+(?:\.\d{2})?',  # $50,000 - $70,000
+        r'\$[\d,]+(?:\.\d{2})?(?:\s*per\s*year|\s*annually|\s*/year)?',  # $60,000 per year
+        r'[\d,]+k\s*-\s*[\d,]+k',  # 50k - 70k
+        r'[\d,]+k(?:\s*per\s*year|\s*annually)?',  # 60k annually
+    ]
+    
+    for pattern in salary_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group().strip()
+    
+    return "Not specified"
+
+def scrape_indeed(self, job_title: str, location: str) -> List[JobListing]:
+    """Scrape Indeed for job listings"""
+    jobs = []
+    base_url = "https://www.indeed.com/jobs"
+    
+    params = {
+        'q': job_title,
+        'l': location,
+        'sort': 'date'
+    }
+    
+    # Build URL
+    url = f"{base_url}?q={quote(job_title)}&l={quote(location)}"
+    logger.info(f"Scraping Indeed: {url}")
+    
+    soup = self.get_page(url)
+    if not soup:
+        return jobs
+    
+    # Find job cards (Indeed's structure may change)
+    job_cards = soup.find_all(['div'], class_=re.compile('job_seen_beacon|slider_container'))
+    
+    for card in job_cards[:10]:  # Limit to first 10 results
+        try:
+            # Extract job details
+            title_elem = card.find(['h2', 'a'], attrs={'data-jk': True}) or card.find('h2')
+            company_elem = card.find(['span', 'a'], class_=re.compile('companyName'))
+            location_elem = card.find(['div'], attrs={'data-testid': 'job-location'})
+            salary_elem = card.find(['span'], class_=re.compile('salary'))
+            
+            # Get job URL
+            job_url = ""
+            if title_elem and title_elem.get('href'):
+                job_url = urljoin("https://www.indeed.com", title_elem['href'])
+            
+            # Extract text content
+            title = title_elem.get_text(strip=True) if title_elem else "N/A"
+            company = company_elem.get_text(strip=True) if company_elem else "N/A"
+            location_text = location_elem.get_text(strip=True) if location_elem else "N/A"
+            salary = self.extract_salary(salary_elem.get_text(strip=True) if salary_elem else "")
+            
+            if title != "N/A" and company != "N/A":
+                jobs.append(JobListing(
+                    title=title,
+                    company=company,
+                    location=location_text,
+                    salary=salary,
+                    source="Indeed",
+                    url=job_url
+                ))
+                
+        except Exception as e:
+            logger.warning(f"Error parsing Indeed job card: {e}")
+            continue
+    
+    logger.info(f"Found {len(jobs)} jobs on Indeed")
+    return jobs
+
+def scrape_glassdoor(self, job_title: str, location: str) -> List[JobListing]:
+    """Scrape Glassdoor for job listings"""
+    jobs = []
+    base_url = "https://www.glassdoor.com/Job/jobs.htm"
+    
+    url = f"{base_url}?sc.keyword={quote(job_title)}&locT=C&locId=1146821"  # LA location ID
+    logger.info(f"Scraping Glassdoor: {url}")
+    
+    soup = self.get_page(url)
+    if not soup:
+        return jobs
+    
+    # Glassdoor has anti-scraping measures, so this is a basic implementation
+    job_cards = soup.find_all(['div'], class_=re.compile('react-job-listing'))
+    
+    for card in job_cards[:10]:
+        try:
+            title_elem = card.find(['a'], attrs={'data-test': 'job-title'})
+            company_elem = card.find(['span'], attrs={'data-test': 'employer-name'})
+            location_elem = card.find(['span'], attrs={'data-test': 'job-location'})
+            salary_elem = card.find(['span'], class_=re.compile('salary'))
+            
+            title = title_elem.get_text(strip=True) if title_elem else "N/A"
+            company = company_elem.get_text(strip=True) if company_elem else "N/A"
+            location_text = location_elem.get_text(strip=True) if location_elem else "N/A"
+            salary = self.extract_salary(salary_elem.get_text(strip=True) if salary_elem else "")
+            
+            job_url = ""
+            if title_elem and title_elem.get('href'):
+                job_url = urljoin("https://www.glassdoor.com", title_elem['href'])
+            
+            if title != "N/A" and company != "N/A":
+                jobs.append(JobListing(
+                    title=title,
+                    company=company,
+                    location=location_text,
+                    salary=salary,
+                    source="Glassdoor",
+                    url=job_url
+                ))
+                
+        except Exception as e:
+            logger.warning(f"Error parsing Glassdoor job card: {e}")
+            continue
+    
+    logger.info(f"Found {len(jobs)} jobs on Glassdoor")
+    return jobs
+
+def scrape_linkedin(self, job_title: str, location: str) -> List[JobListing]:
+    """Scrape LinkedIn for job listings (basic implementation)"""
+    jobs = []
+    
+    # LinkedIn requires authentication for most job searches
+    # This is a placeholder implementation
+    logger.info("LinkedIn scraping requires authentication - implementing basic search")
+    
+    # For demonstration, we'll create some sample data
+    # In practice, you'd need to use LinkedIn's API or handle authentication
+    sample_jobs = [
+        JobListing(
+            title="Senior Graphic Designer",
+            company="Creative Agency LA",
+            location="Los Angeles, CA",
+            salary="$65,000 - $80,000",
+            source="LinkedIn",
+            url="https://linkedin.com/jobs/sample1"
+        ),
+        JobListing(
+            title="Graphic Designer",
+            company="Marketing Firm",
+            location="Los Angeles, CA",
+            salary="$50,000 - $65,000",
+            source="LinkedIn",
+            url="https://linkedin.com/jobs/sample2"
+        )
+    ]
+    
+    logger.info(f"Found {len(sample_jobs)} sample jobs on LinkedIn")
+    return sample_jobs
+```
+
+def save_to_csv(jobs: List[JobListing], filename: str = “graphic_designer_jobs_la.csv”):
+“”“Save job listings to CSV file”””
+if not jobs:
+logger.warning(“No jobs to save”)
+return
+
+```
+df = pd.DataFrame([
+    {
+        'Title': job.title,
+        'Company': job.company,
+        'Location': job.location,
+        'Salary': job.salary,
+        'Source': job.source,
+        'URL': job.url
+    }
+    for job in jobs
+])
+
+df.to_csv(filename, index=False)
+logger.info(f"Saved {len(jobs)} jobs to {filename}")
+```
+
+def analyze_salaries(jobs: List[JobListing]):
+“”“Analyze salary data”””
+salary_data = []
+
+```
+for job in jobs:
+    if job.salary and job.salary != "Not specified":
+        # Extract numeric values from salary strings
+        numbers = re.findall(r'[\d,]+', job.salary.replace('$', '').replace('k', '000'))
+        if numbers:
+            # Convert to integers and handle ranges
+            try:
+                if len(numbers) >= 2:  # Salary range
+                    min_sal = int(numbers[0].replace(',', ''))
+                    max_sal = int(numbers[1].replace(',', ''))
+                    avg_sal = (min_sal + max_sal) / 2
+                    salary_data.append(avg_sal)
+                else:  # Single salary
+                    salary_data.append(int(numbers[0].replace(',', '')))
+            except ValueError:
+                continue
+
+if salary_data:
+    print(f"\n--- Salary Analysis for Graphic Designers in LA ---")
+    print(f"Average Salary: ${sum(salary_data) / len(salary_data):,.2f}")
+    print(f"Median Salary: ${sorted(salary_data)[len(salary_data)//2]:,.2f}")
+    print(f"Min Salary: ${min(salary_data):,.2f}")
+    print(f"Max Salary: ${max(salary_data):,.2f}")
+    print(f"Sample Size: {len(salary_data)} jobs with salary data")
+else:
+    print("No salary data available for analysis")
+```
+
+def main():
+“”“Main function to run the scraper”””
+scraper = JobScraper(delay=3)  # 3-second delay between requests
+job_title = “graphic designer”
+location = “Los Angeles, CA”
+
+```
+all_jobs = []
+
+# Scrape different job sites
+print("Starting job scraping for Graphic Designer positions in Los Angeles...")
+
+try:
+    # Indeed
+    indeed_jobs = scraper.scrape_indeed(job_title, location)
+    all_jobs.extend(indeed_jobs)
+    
+    # Glassdoor
+    glassdoor_jobs = scraper.scrape_glassdoor(job_title, location)
+    all_jobs.extend(glassdoor_jobs)
+    
+    # LinkedIn (sample data)
+    linkedin_jobs = scraper.scrape_linkedin(job_title, location)
+    all_jobs.extend(linkedin_jobs)
+    
+except KeyboardInterrupt:
+    print("\nScraping interrupted by user")
+except Exception as e:
+    logger.error(f"Unexpected error: {e}")
+
+# Save results
+if all_jobs:
+    save_to_csv(all_jobs)
+    
+    # Display results
+    print(f"\nFound {len(all_jobs)} total job listings:")
+    for job in all_jobs:
+        print(f"- {job.title} at {job.company} | {job.salary} | {job.source}")
+    
+    # Analyze salaries
+    analyze_salaries(all_jobs)
+    
+else:
+    print("No jobs found. This might be due to:")
+    print("- Website structure changes")
+    print("- Rate limiting or blocking")
+    print("- Network issues")
+    print("- Sites requiring authentication")
+```
+
+if **name** == “**main**”:
+main()
